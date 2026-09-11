@@ -311,10 +311,14 @@
     <div class="brand"><span class="mark">◆</span> 지점원 - 비서 업무시스템 · 관리자</div>
     <div style="display:flex;gap:10px;align-items:center;">
       <span id="adminWho" style="font-size:13px;color:var(--muted);"></span>
+      <button id="adminSwitchBtn" class="ghost-btn" style="display:none;" onclick="enterApp()">업무 화면으로 이동</button>
       <button class="ghost-btn" onclick="logout()">로그아웃</button>
     </div>
   </div>
   <div style="max-width:900px;margin:0 auto;padding:30px 20px;">
+    <h2 style="margin:0 0 6px;">내 계정 (관리자)</h2>
+    <div class="lead" style="margin-bottom:12px;color:var(--muted);font-size:13px;">관리자 계정으로도 지점원/비서 업무 화면을 사용하려면 역할을 배정하세요.</div>
+    <div id="adminSelfRole" style="margin-bottom:28px;"></div>
     <h2 style="margin:0 0 6px;">가입 계정 관리</h2>
     <div class="lead" style="margin-bottom:20px;color:var(--muted);font-size:13px;">Google 계정으로 로그인한 사용자에게 역할(지점원/비서)을 배정하세요.</div>
     <div id="adminUserList"></div>
@@ -339,6 +343,7 @@
         <div class="item nav-cat" data-cat="mobile" onclick="showCatScreen('mobile')">모바일청약서 제출 요청</div>
       </div>
       <div class="sec-note">🔒 AES-256-GCM 암호화 적용<br>브라우저 로컬 저장 (데모)</div>
+      <button id="appAdminSwitchBtn" class="logout-btn" style="display:none;border-color:var(--gold);color:var(--gold);margin-bottom:8px;" onclick="showAdmin(currentAuthUser)">관리자 화면으로 이동</button>
       <button class="logout-btn" onclick="logout()">로그아웃</button>
     </div>
 
@@ -704,6 +709,8 @@
   /* ---------------- Auth / view state ---------------- */
   var currentUser = null; // {role:'rep'|'sec', id, name, branch}
   var currentAuthUser = null; // firebase auth user object
+  var isCurrentUserAdmin = false;
+  var currentUserProfile = null;
   var navCategory = "";
   var currentScreen = "work"; // 'work' | 'custinfo'
   var secSelectedRepId = null;
@@ -733,7 +740,28 @@
     hideAllScreens();
     document.getElementById("adminScreen").style.display = "block";
     document.getElementById("adminWho").textContent = (user.displayName||"") + " (" + (user.email||"") + ")";
+    var switchBtn = document.getElementById("adminSwitchBtn");
+    if(switchBtn) switchBtn.style.display = currentUser ? "inline-block" : "none";
+    renderAdminSelfRole();
     renderAdminUserList();
+  }
+  function renderAdminSelfRole(){
+    var box = document.getElementById("adminSelfRole");
+    if(!box || !currentAuthUser) return;
+    var u = currentUserProfile || {};
+    var uid = currentAuthUser.uid;
+    var roleLabel = u.role === "rep" ? "지점원" : (u.role === "sec" ? "비서" : "미배정");
+    box.innerHTML =
+      '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;">'
+      + '<div style="flex:1;">'
+        + '<strong>'+escapeHtml(u.name||currentAuthUser.displayName||"")+'</strong> <span class="muted" style="font-size:12px;">'+escapeHtml(u.email||currentAuthUser.email||"")+'</span><br>'
+        + '<span class="muted" style="font-size:12px;">현재: '+roleLabel+(u.branch?(" · "+escapeHtml(u.branch)):"")+'</span>'
+      + '</div>'
+      + '<input type="text" placeholder="지점명" value="'+escapeHtml(u.branch||"")+'" id="branch_'+uid+'" style="width:110px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;">'
+      + '<button class="ghost-btn" onclick="assignRole(\''+uid+'\',\'rep\')">지점원 지정</button>'
+      + '<button class="ghost-btn" onclick="assignRole(\''+uid+'\',\'sec\')">비서 지정</button>'
+      + (u.role ? '<button class="ghost-btn" onclick="assignRole(\''+uid+'\',null)">배정 해제</button>' : '')
+      + '</div>';
   }
   function googleSignIn(){
     var provider = new firebase.auth.GoogleAuthProvider();
@@ -742,6 +770,9 @@
   function logout(){
     currentUser = null;
     currentAuthUser = null;
+    isCurrentUserAdmin = false;
+    currentUserProfile = null;
+    if(adminUserListUnsub){ adminUserListUnsub(); adminUserListUnsub = null; }
     auth.signOut();
     showLanding();
   }
@@ -775,7 +806,19 @@
       profile = snap.data();
       return profile;
     }).then(function(profile){
-      if(ADMIN_EMAILS.indexOf(user.email) > -1){
+      isCurrentUserAdmin = ADMIN_EMAILS.indexOf(user.email) > -1;
+      currentUserProfile = profile;
+      if(profile.role){
+        currentUser = {
+          role: profile.role,
+          id: user.uid,
+          name: profile.name || user.displayName || "",
+          branch: profile.branch || null
+        };
+      } else {
+        currentUser = null;
+      }
+      if(isCurrentUserAdmin){
         showAdmin(user);
         return;
       }
@@ -783,12 +826,6 @@
         showPending(user, profile);
         return;
       }
-      currentUser = {
-        role: profile.role,
-        id: user.uid,
-        name: profile.name || user.displayName || "",
-        branch: profile.branch || null
-      };
       enterApp();
     }).catch(function(err){
       toast("계정 정보를 불러오지 못했습니다: " + (err && err.message ? err.message : err));
@@ -796,10 +833,12 @@
   });
 
   /* ---------------- Admin: role assignment ---------------- */
+  var adminUserListUnsub = null;
   function renderAdminUserList(){
     var box = document.getElementById("adminUserList");
     box.innerHTML = '<div class="muted" style="font-size:13px;">불러오는 중…</div>';
-    usersCol.orderBy("createdAt", "desc").get().then(function(qs){
+    if(adminUserListUnsub){ adminUserListUnsub(); adminUserListUnsub = null; }
+    adminUserListUnsub = usersCol.orderBy("createdAt", "desc").onSnapshot(function(qs){
       if(qs.empty){
         box.innerHTML = '<div class="muted" style="font-size:13px;">가입한 계정이 없습니다.</div>';
         return;
@@ -824,7 +863,7 @@
         );
       });
       box.innerHTML = rows.join("") || '<div class="muted" style="font-size:13px;">가입한 계정이 없습니다.</div>';
-    }).catch(function(err){
+    }, function(err){
       box.innerHTML = '<div class="muted" style="font-size:13px;">불러오기 실패: '+escapeHtml(err && err.message ? err.message : String(err))+'</div>';
     });
   }
@@ -835,6 +874,25 @@
     if(role === "rep") data.branch = branch || null;
     usersCol.doc(uid).update(data).then(function(){
       toast(role ? "역할이 배정되었습니다." : "배정이 해제되었습니다.");
+      if(currentAuthUser && uid === currentAuthUser.uid){
+        return usersCol.doc(uid).get().then(function(snap){
+          var profile = snap.data();
+          currentUserProfile = profile;
+          if(profile.role){
+            currentUser = {
+              role: profile.role,
+              id: uid,
+              name: profile.name || currentAuthUser.displayName || "",
+              branch: profile.branch || null
+            };
+          } else {
+            currentUser = null;
+          }
+          var switchBtn = document.getElementById("adminSwitchBtn");
+          if(switchBtn) switchBtn.style.display = currentUser ? "inline-block" : "none";
+          renderAdminSelfRole();
+        });
+      }
       renderAdminUserList();
     }).catch(function(err){
       toast("업데이트 실패: " + (err && err.message ? err.message : err));
@@ -844,6 +902,9 @@
   function enterApp(){
     hideAllScreens();
     document.getElementById("app").style.display = "block";
+
+    var adminSwitchBtn = document.getElementById("appAdminSwitchBtn");
+    if(adminSwitchBtn) adminSwitchBtn.style.display = isCurrentUserAdmin ? "block" : "none";
 
     navCategory = "";
     currentScreen = "work";
