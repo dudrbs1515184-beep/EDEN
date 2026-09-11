@@ -516,6 +516,9 @@
   };
   firebase.initializeApp(firebaseConfig);
   var auth = firebase.auth();
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(err){
+    console.error("[auth] setPersistence failed:", err);
+  });
   var db = firebase.firestore();
   var usersCol = db.collection("users");
   var itemsCol = db.collection("items");
@@ -698,12 +701,12 @@
     });
   }
   var toastTimer=null;
-  function toast(msg){
+  function toast(msg, duration){
     var t = document.getElementById("toast");
     t.textContent = msg;
     t.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function(){ t.classList.remove("show"); }, 2600);
+    toastTimer = setTimeout(function(){ t.classList.remove("show"); }, duration || 2600);
   }
 
   /* ---------------- Auth / view state ---------------- */
@@ -777,11 +780,15 @@
     showLanding();
   }
 
-  auth.getRedirectResult().catch(function(err){
-    toast("로그인 실패: " + (err && err.message ? err.message : err));
+  auth.getRedirectResult().then(function(result){
+    console.log("[auth] getRedirectResult:", result && result.user ? result.user.email : "(no user in result)");
+  }).catch(function(err){
+    console.error("[auth] getRedirectResult error:", err);
+    toast("로그인 실패 (" + (err && err.code ? err.code : "unknown") + "): " + (err && err.message ? err.message : err), 6000);
   });
 
   auth.onAuthStateChanged(function(user){
+    console.log("[auth] onAuthStateChanged:", user ? user.email : "(no user)");
     if(!user){
       currentAuthUser = null;
       currentUser = null;
@@ -828,7 +835,8 @@
       }
       enterApp();
     }).catch(function(err){
-      toast("계정 정보를 불러오지 못했습니다: " + (err && err.message ? err.message : err));
+      console.error("[auth] profile load/create error:", err);
+      toast("계정 정보를 불러오지 못했습니다 (" + (err && err.code ? err.code : "unknown") + "): " + (err && err.message ? err.message : err), 6000);
     });
   });
 
