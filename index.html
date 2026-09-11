@@ -775,8 +775,31 @@
       + '</div>';
   }
   function googleSignIn(){
-    var provider = new firebase.auth.GoogleAuthProvider();
-    auth.signInWithRedirect(provider);
+    console.log("[auth] googleSignIn() called");
+    try{
+      var provider = new firebase.auth.GoogleAuthProvider();
+      auth.signInWithPopup(provider).then(function(result){
+        console.log("[auth] signInWithPopup success:", result && result.user ? result.user.email : "(no user)");
+      }).catch(function(err){
+        console.error("[auth] signInWithPopup error:", err);
+        if(err && (err.code === "auth/popup-blocked" || err.code === "auth/operation-not-supported-in-this-environment")){
+          console.log("[auth] falling back to signInWithRedirect");
+          auth.signInWithRedirect(provider).catch(function(err2){
+            console.error("[auth] signInWithRedirect fallback error:", err2);
+            toast("로그인 시작 실패 (" + (err2 && err2.code ? err2.code : "unknown") + "): " + (err2 && err2.message ? err2.message : err2), 6000);
+          });
+          return;
+        }
+        if(err && err.code === "auth/popup-closed-by-user"){
+          toast("로그인 창이 닫혔습니다. 다시 시도해주세요.", 4000);
+          return;
+        }
+        toast("로그인 시작 실패 (" + (err && err.code ? err.code : "unknown") + "): " + (err && err.message ? err.message : err), 6000);
+      });
+    }catch(err){
+      console.error("[auth] googleSignIn threw:", err);
+      toast("로그인 오류: " + (err && err.message ? err.message : err), 6000);
+    }
   }
   function logout(){
     currentUser = null;
