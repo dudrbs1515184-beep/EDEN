@@ -343,7 +343,7 @@
         <div class="item nav-cat" data-cat="mobile" onclick="showCatScreen('mobile')">모바일청약서 제출 요청</div>
       </div>
       <div class="sec-note">🔒 AES-256-GCM 암호화 적용<br>브라우저 로컬 저장 (데모)</div>
-      <button id="appAdminSwitchBtn" class="logout-btn" style="display:none;border-color:var(--gold);color:var(--gold);margin-bottom:8px;" onclick="showAdmin(currentAuthUser)">관리자 화면으로 이동</button>
+      <button id="appAdminSwitchBtn" class="logout-btn" style="display:none;border-color:var(--gold);color:var(--gold);margin-bottom:8px;" onclick="switchToAdminScreen()">관리자 화면으로 이동</button>
       <button class="logout-btn" onclick="logout()">로그아웃</button>
     </div>
 
@@ -1638,6 +1638,8 @@
 
   /* ---------------- expose to global for inline handlers ---------------- */
   window.showLanding = showLanding;
+  window.enterApp = enterApp;
+  window.switchToAdminScreen = function(){ if(currentAuthUser) showAdmin(currentAuthUser); };
   window.googleSignIn = googleSignIn;
   window.assignRole = assignRole;
   window.logout = logout;
