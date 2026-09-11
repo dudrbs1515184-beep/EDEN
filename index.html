@@ -526,20 +526,24 @@
 
   /* ---------------- Rep directory (live from Firestore) ---------------- */
   var REPS = [];
-  usersCol.where("role","==","rep").onSnapshot(function(qs){
-    var list = [];
-    qs.forEach(function(doc){
-      var u = doc.data();
-      list.push({ id: doc.id, name: u.name||"", branch: u.branch||"" });
+  var repsListUnsub = null;
+  function startRepsListener(){
+    if(repsListUnsub) return;
+    repsListUnsub = usersCol.where("role","==","rep").onSnapshot(function(qs){
+      var list = [];
+      qs.forEach(function(doc){
+        var u = doc.data();
+        list.push({ id: doc.id, name: u.name||"", branch: u.branch||"" });
+      });
+      REPS = list;
+      if(currentUser && currentUser.role === "sec"){
+        if(typeof renderRepList === "function") renderRepList();
+        if(typeof renderCustRepList === "function") renderCustRepList();
+      }
+    }, function(err){
+      console.error("REPS sync error", err);
     });
-    REPS = list;
-    if(currentUser && currentUser.role === "sec"){
-      if(typeof renderRepList === "function") renderRepList();
-      if(typeof renderCustRepList === "function") renderCustRepList();
-    }
-  }, function(err){
-    console.error("REPS sync error", err);
-  });
+  }
 
   /* ---------------- Request category schema ---------------- */
   var CATEGORIES = {
@@ -584,26 +588,30 @@
   /* ---------------- Storage (Firestore-backed live cache) ---------------- */
   var filesCache = [];
   var filesCacheReady = false;
-  itemsCol.onSnapshot(function(qs){
-    var list = [];
-    qs.forEach(function(doc){
-      var d = doc.data();
-      d.id = doc.id;
-      list.push(d);
-    });
-    filesCache = list;
-    filesCacheReady = true;
-    if(currentUser){
-      if(currentUser.role === "rep" && typeof renderRepFiles === "function") renderRepFiles();
-      if(currentUser.role === "sec"){
-        if(typeof renderRepList === "function") renderRepList();
-        if(typeof renderSecView === "function") renderSecView();
-        if(typeof renderCustRepList === "function") renderCustRepList();
+  var itemsListUnsub = null;
+  function startItemsListener(){
+    if(itemsListUnsub) return;
+    itemsListUnsub = itemsCol.onSnapshot(function(qs){
+      var list = [];
+      qs.forEach(function(doc){
+        var d = doc.data();
+        d.id = doc.id;
+        list.push(d);
+      });
+      filesCache = list;
+      filesCacheReady = true;
+      if(currentUser){
+        if(currentUser.role === "rep" && typeof renderRepFiles === "function") renderRepFiles();
+        if(currentUser.role === "sec"){
+          if(typeof renderRepList === "function") renderRepList();
+          if(typeof renderSecView === "function") renderSecView();
+          if(typeof renderCustRepList === "function") renderCustRepList();
+        }
       }
-    }
-  }, function(err){
-    console.error("items sync error", err);
-  });
+    }, function(err){
+      console.error("items sync error", err);
+    });
+  }
   function loadFiles(){
     return filesCache;
   }
@@ -776,26 +784,54 @@
     isCurrentUserAdmin = false;
     currentUserProfile = null;
     if(adminUserListUnsub){ adminUserListUnsub(); adminUserListUnsub = null; }
+    if(repsListUnsub){ repsListUnsub(); repsListUnsub = null; }
+    if(itemsListUnsub){ itemsListUnsub(); itemsListUnsub = null; }
     auth.signOut();
     showLanding();
   }
 
+  var redirectCheckDone = false;
   auth.getRedirectResult().then(function(result){
     console.log("[auth] getRedirectResult:", result && result.user ? result.user.email : "(no user in result)");
   }).catch(function(err){
     console.error("[auth] getRedirectResult error:", err);
     toast("로그인 실패 (" + (err && err.code ? err.code : "unknown") + "): " + (err && err.message ? err.message : err), 6000);
+  }).then(function(){
+    redirectCheckDone = true;
   });
 
+  function handleNoUser(){
+    currentAuthUser = null;
+    currentUser = null;
+    if(repsListUnsub){ repsListUnsub(); repsListUnsub = null; }
+    if(itemsListUnsub){ itemsListUnsub(); itemsListUnsub = null; }
+    showLanding();
+  }
+
   auth.onAuthStateChanged(function(user){
-    console.log("[auth] onAuthStateChanged:", user ? user.email : "(no user)");
+    console.log("[auth] onAuthStateChanged:", user ? user.email : "(no user)", "redirectCheckDone:", redirectCheckDone);
     if(!user){
-      currentAuthUser = null;
-      currentUser = null;
-      showLanding();
+      // Guard against a race where onAuthStateChanged fires with null
+      // before the redirect-sign-in result has finished being processed
+      // (seen intermittently on desktop Chrome). Give it a brief window
+      // to settle before giving up and showing the landing screen.
+      if(!redirectCheckDone){
+        setTimeout(function(){
+          if(!auth.currentUser){
+            console.log("[auth] still no user after grace period, showing landing");
+            handleNoUser();
+          } else {
+            console.log("[auth] user appeared after grace period:", auth.currentUser.email);
+          }
+        }, 1500);
+        return;
+      }
+      handleNoUser();
       return;
     }
     currentAuthUser = user;
+    startRepsListener();
+    startItemsListener();
     var ref = usersCol.doc(user.uid);
     ref.get().then(function(snap){
       var profile;
