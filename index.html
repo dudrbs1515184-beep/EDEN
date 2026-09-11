@@ -737,9 +737,7 @@
   }
   function googleSignIn(){
     var provider = new firebase.auth.GoogleAuthProvider();
-    auth.signInWithPopup(provider).catch(function(err){
-      toast("로그인 실패: " + (err && err.message ? err.message : err));
-    });
+    auth.signInWithRedirect(provider);
   }
   function logout(){
     currentUser = null;
@@ -747,6 +745,10 @@
     auth.signOut();
     showLanding();
   }
+
+  auth.getRedirectResult().catch(function(err){
+    toast("로그인 실패: " + (err && err.message ? err.message : err));
+  });
 
   auth.onAuthStateChanged(function(user){
     if(!user){
